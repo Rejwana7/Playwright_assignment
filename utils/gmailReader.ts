@@ -1,4 +1,5 @@
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me/messages';
+const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const LOGIN_OTP_SUBJECT = 'Your Login OTP';
 const POLL_INTERVAL = 5_000;
 
@@ -22,6 +23,19 @@ interface GmailMessage {
 
 interface GmailMessageList {
   messages?: Array<{ id: string }>;
+}
+
+interface GmailOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}
+
+interface GmailOAuthTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
 }
 
 export interface GmailMessageSummary {
@@ -48,16 +62,30 @@ export function extractOtp(snippet: string): string {
 }
 
 export class GmailReader {
-  private readonly headers: Record<string, string>;
+  private readonly configuredAccessToken?: string;
+  private readonly oauthCredentials?: GmailOAuthCredentials;
+  private cachedAccessToken?: string;
+  private cachedAccessTokenExpiresAt = 0;
 
   constructor() {
-    const accessToken = process.env.GMAIL_ACCESS_TOKEN;
+    const clientId = process.env.GMAIL_CLIENT_ID;
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+    const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
 
-    if (!accessToken) {
-      throw new Error('GMAIL_ACCESS_TOKEN is missing from the .env file.');
+    if (clientId && clientSecret && refreshToken) {
+      this.oauthCredentials = { clientId, clientSecret, refreshToken };
+      return;
     }
 
-    this.headers = { Authorization: `Bearer ${accessToken}` };
+    this.configuredAccessToken = process.env.GMAIL_ACCESS_TOKEN;
+
+    if (!this.configuredAccessToken) {
+      throw new Error(
+        'Gmail authentication is missing. Configure GMAIL_CLIENT_ID, ' +
+          'GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN, or provide ' +
+          'GMAIL_ACCESS_TOKEN for a temporary local run.',
+      );
+    }
   }
 
   async getLatestOtpMessage(
@@ -178,7 +206,13 @@ export class GmailReader {
   }
 
   private async getJson<T>(url: URL): Promise<T> {
-    const response = await fetch(url, { headers: this.headers });
+    let response = await this.fetchGmailApi(url);
+
+    if (response.status === 401 && this.oauthCredentials) {
+      this.cachedAccessToken = undefined;
+      this.cachedAccessTokenExpiresAt = 0;
+      response = await this.fetchGmailApi(url);
+    }
 
     if (!response.ok) {
       throw new Error(
@@ -187,6 +221,55 @@ export class GmailReader {
     }
 
     return (await response.json()) as T;
+  }
+
+  private async fetchGmailApi(url: URL): Promise<Response> {
+    const accessToken = await this.getAccessToken();
+
+    return fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  }
+
+  private async getAccessToken(): Promise<string> {
+    if (!this.oauthCredentials) {
+      return this.configuredAccessToken!;
+    }
+
+    if (
+      this.cachedAccessToken &&
+      Date.now() < this.cachedAccessTokenExpiresAt
+    ) {
+      return this.cachedAccessToken;
+    }
+
+    const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: this.oauthCredentials.clientId,
+        client_secret: this.oauthCredentials.clientSecret,
+        refresh_token: this.oauthCredentials.refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+    const tokenData = (await response.json()) as GmailOAuthTokenResponse;
+
+    if (!response.ok || !tokenData.access_token) {
+      const details = tokenData.error_description ?? tokenData.error;
+      throw new Error(
+        `Unable to refresh the Gmail access token${details ? `: ${details}` : '.'}`,
+      );
+    }
+
+    const refreshBeforeExpiryMilliseconds = 60_000;
+    const expiresInMilliseconds = (tokenData.expires_in ?? 3_600) * 1_000;
+
+    this.cachedAccessToken = tokenData.access_token;
+    this.cachedAccessTokenExpiresAt =
+      Date.now() + expiresInMilliseconds - refreshBeforeExpiryMilliseconds;
+
+    return this.cachedAccessToken;
   }
 
   private toSummary(message: GmailMessage): GmailMessageSummary {

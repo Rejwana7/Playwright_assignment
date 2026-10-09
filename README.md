@@ -56,10 +56,14 @@ End-to-end test automation for the DMoney web application using Playwright and T
 
    ```env
    baseEmail=your_gmail_username
-   GMAIL_ACCESS_TOKEN=your_gmail_api_access_token
+   GMAIL_CLIENT_ID=your_google_oauth_client_id
+   GMAIL_CLIENT_SECRET=your_google_oauth_client_secret
+   GMAIL_REFRESH_TOKEN=your_google_oauth_refresh_token
    ```
 
    `baseEmail` is the part before `@gmail.com`. For example, use `qa.automation` for `qa.automation@gmail.com`.
+
+   A temporary `GMAIL_ACCESS_TOKEN` can still be used for local execution, but the refresh-token credentials are recommended because access tokens expire quickly.
 
 ## Running the Tests
 
@@ -87,6 +91,23 @@ npm run test:smoke
 | --- | --- | --- | ---: |
 | Regression | `@regression` | Complete positive and negative workflow | 6 |
 | Smoke | `@smoke` | Positive critical-path scenarios only | 5 |
+
+## Continuous Integration
+
+GitHub Actions runs the regression suite on every push or pull request to `main`. It can also be started manually from **Actions → DMoney Playwright Tests → Run workflow**.
+
+Add these repository secrets from **Settings → Secrets and variables → Actions** before starting the workflow:
+
+| Repository secret | Purpose |
+| --- | --- |
+| `BASE_EMAIL` | Gmail username without `@gmail.com` |
+| `GMAIL_CLIENT_ID` | Google OAuth client ID |
+| `GMAIL_CLIENT_SECRET` | Google OAuth client secret |
+| `GMAIL_REFRESH_TOKEN` | Long-lived token used to obtain fresh Gmail access tokens |
+
+The workflow runs Chromium in headed mode through Xvfb and uploads both the HTML report and test evidence for 30 days. Do not add the short-lived Gmail access token as a permanent GitHub secret.
+
+Google OAuth applications in `Testing` publishing status normally issue refresh tokens that expire after seven days when Gmail scopes are used. For ongoing CI, use an appropriately configured `In production` OAuth application or replace the refresh-token secret when it expires.
 
 ## Full Automation Video
 
@@ -120,4 +141,3 @@ The Self Statement is saved with the execution date in the filename. GitHub rend
 ## Generated and Ignored Files
 
 Secrets, temporary reports, browser traces, and runtime Agent/auth state are excluded through `.gitignore`. The final screenshots, selected video, and CSV evidence remain available in the repository for assignment review.
-
