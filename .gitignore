@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Playwright generated artifacts
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Environment secrets
+.env
+
+# Runtime test state
+/test_data/agent.json
+/test_data/auth.json
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
