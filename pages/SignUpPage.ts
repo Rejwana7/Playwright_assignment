@@ -29,10 +29,7 @@ export class SignUpPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.pageHeading = page.getByRole('heading', {
-      name: 'Create an Account',
-      exact: true,
-    });
+    this.pageHeading = page.getByText('Create an Account', { exact: true });
     this.fullNameInput = page.getByRole('textbox', {
       name: 'Full Name',
       exact: true,
